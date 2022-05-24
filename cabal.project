@@ -1,0 +1,4 @@
+packages:
+  clash-simulation-script.cabal
+
+write-ghc-environment-files: always
