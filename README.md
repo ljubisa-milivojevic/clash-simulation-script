@@ -6,7 +6,7 @@ In addition to the simulation results, we can also get the log (not necessarily 
 
 This description contains a real-life example that illustrates all features of the package. **If you want to be just informed about the package, see the Collatz test in the Tests directory.**
 
-## Requirements
+## Design requirements
 
 When I began programming in Clash, I quickly needed a testing mechanism that satisfied the following requirements:
 
@@ -64,7 +64,7 @@ Control hashes are computed using an online program.
 Your main testing script is:
 
 ```haskell
-test :: SimScript CInp COut [String]
+test :: SimScript CInp COut [String] ()
 test = script $ \exec continue -> do
   -- waiting to start initalise circuit
   void $ execUntil exec
@@ -80,25 +80,26 @@ The script type is SimScript with (type) parameters:
 - type of circuit input (*CInp*)
 - type of circuit output (*COut*)
 - type of simulation log (*[String]*)
+- type of state (the unit type “*()*”)
 
 The main script is initialised by calling the *script* function. The type of this function is somewhat unusual, especially for those who have not used *Cont* monad and the function *callCC*:
 
 ```haskell
-script :: forall w c r. Monoid w 
-			 => ((c -> SimScript_ c r w r) -> SimScript c r w -> SimScript c r w)
-			 -> SimScript c r w
+script :: Monoid w
+       => ((c -> SimScript_ c r w s r) -> SimScript c r w s -> SimScript c r w s)
+       -> SimScript c r w s
 ```
 
 However, as we can see from the example, the use is simple. The function needed for calling the *script* is formed as a simple lambda expression. The first argument (named *exec*) provides a command to your circuit. The second argument (named *continue*, although it could be named *abort*) is a signal to the interpreter that the script is finished, and the simulation will continue repeating the last circuit input.
 
-The script *test* calls a utility function execUntil, which simply executes exec with the specified input until the result does not satisfy the specified condition.
+The script *test* calls a utility function *execUntil*, which simply executes exec with the specified input until the result does not satisfy the specified condition.
 
-The script procMsg, which we call from the main script, performs the actual testing for a message.
+The script *procMsg*, which we call from the main script, performs the actual testing for a message.
 
 ```haskell
-procMsg :: SimExecFn CInp COut [String] 
-        -> TestData 
-        -> SimScript_ CInp COut [String] ()
+procMsg :: SimExecFn CInp COut [String] ()
+        -> TestData
+        -> SimScript_ CInp COut [String] () ()
 procMsg exec TestData{..} = do
   -- initialise new computation
   void $ exec initProc
@@ -126,7 +127,7 @@ procMsg exec TestData{..} = do
         show (tstop - tstart)]
 ```
 
-Note the return type of the function: *procMsg :: …  -> **SimScript_** CInp COut [String] ()*. Type *SimScript_* has additional, fourth, parameter - type of the return value. Subscripts always have return value type, even if they return ().
+Note the return type of the function: *procMsg :: …  -> **SimScript_** CInp COut [String] () ()*. Type *SimScript_* has additional, fifth, parameter - type of the return value. Subscripts always have return value type, even if they return ().
 
 Function *getSimTime* returns simulation time - clock tick counter staring at the start of the simulation.
 
@@ -154,7 +155,7 @@ We still have to perform our test.
 Functions for executing scripts are described in the section “Running simulation” below. For our test, we will use *execScriptN.* Running:
 
 ```haskell
-clashi> mapM_ putStrLn $ execScriptN @System 1000 sha256circ test
+clashi> mapM_ putStrLn $ execScriptN @System 1000 sha256circ () test
 ```
 
 will produce:
@@ -185,17 +186,14 @@ The API is an early experimental phase.
 The following types are intended for the creation of simulation scripts:
 
 ```haskell
--- Top level simulation script
-type SimScript c r w = ...
--- Simulation script
-
-type SimScript_ c r w v = ...
--- Type of simlation script exec function
-
-type SimExecFn c r w = (c -> SimScript_ c r w r)
-
--- Type of simlation script continue function
-type SimContinueFn c r w = SimScript_ c r w ()
+-- | Top level simulation script
+type SimScript c r w s  = SimScript_ c r w s (CR c r)
+-- | Simulation script
+type SimScript_ c r w s v  = ContT (CR c r) (State (CC c r w s, w, s, Int)) v
+-- | Type of simlation script exec function
+type SimExecFn c r w s = (c -> SimScript_ c r w s r)
+-- | Type of simlation script continue function
+type SimContinueFn c r w s = SimScript_ c r w s ()
 ```
 
 The type parameters have the following mining:
@@ -203,6 +201,7 @@ The type parameters have the following mining:
 - c - input type for simulated circuit
 - r - output type for simulated circuit
 - w - the type of the simulation log
+- s - the type of monad state
 - v - the type of return value of subscript
 
 ### A script
@@ -210,9 +209,9 @@ The type parameters have the following mining:
 How to create a script using the *script* function is described in the example. There we will repeat the function type:
 
 ```haskell
-script :: forall w c r. Monoid w 
-			 => ((c -> SimScript_ c r w r) -> SimScript c r w -> SimScript c r w)
-			 -> SimScript c r w
+script :: Monoid w
+       => ((c -> SimScript_ c r w s r) -> SimScript c r w s -> SimScript c r w s)
+       -> SimScript c r w s
 ```
 
 The script function is based on callCC from the Cont monad and, consequently, uses the identical method for defining call-current-continuation functions.
@@ -230,25 +229,34 @@ getSimTime :: SimScript_ c r w Int
 There are three functions for executing the script:
 
 ```haskell
-execScriptN :: (KnownDomain dom, NFDataX c, NFDataX r, NFDataX w, Monoid w)
+execScriptN :: (KnownDomain dom, 
+                NFDataX c, NFDataX r, NFDataX w, NFDataX s, 
+                Monoid w)
             => Int
             -> (HiddenClockResetEnable dom => Signal dom c -> Signal dom r)
-            -> SimScript c r w -> w
+            -> s
+            -> SimScript c r w s -> (w, s)
 
-evalScriptN :: (KnownDomain dom, NFDataX c, NFDataX r, NFDataX w, Monoid w)
+evalScriptN :: (KnownDomain dom, 
+                NFDataX c, NFDataX r, NFDataX w, NFDataX s, 
+                Monoid w)
             => Int
             -> (HiddenClockResetEnable dom => Signal dom c -> Signal dom r)
+            -> s
             -> SimScript c r w
             -> [r]
 
-runScriptN :: (KnownDomain dom, NFDataX c, NFDataX r, NFDataX w, Monoid w)
+runScriptN :: (KnownDomain dom, 
+               NFDataX c, NFDataX r, NFDataX w, NFDataX s, 
+               Monoid w)
            => Int
            -> (HiddenClockResetEnable dom => Signal dom c -> Signal dom r)
+           -> s
            -> SimScript c r w
-           -> ([r], w)
+           -> ([r], (w, s))
 ```
 
-The first two parameters of all three functions are identical to the parameters of the Clash prelude function *simulateN* - a number of cycles to simulate and the circuit that is tested. The third parameter is the simulation script. Function execScriptN returns the accumulated log, evalScriptN returns a list of output from the circuit (one for every cycle), *runScriptN* - pairs of output list and the simulation log.
+The first two parameters of all three functions are identical to the parameters of the Clash prelude function *simulateN* - a number of cycles to simulate and the circuit that is tested. The third parameter is the initial state value, and the fourth is the simulation script. Function execScriptN returns the pair accumulated log and final state, evalScriptN returns a list of output from the circuit (one for every cycle), *runScriptN* - pairs of output list and the pair accumulated log and final state.
 
 ### Utility functions
 
@@ -269,3 +277,10 @@ execUntil :: SimExecFn c r w            -- ^ exec function
 Your implementation follows the example of coroutine implementation using *ContT* monad and *callCC* function from:
 
 [https://en.wikibooks.org/wiki/Haskell/Continuation_passing_style](https://en.wikibooks.org/wiki/Haskell/Continuation_passing_style)
+
+# Release notes
+
+## version 0.0.2
+
+- Removed the module Pragmata.Clash.SimScript.Orphans.
+- Added State monad functionality (put, get, and modify functions) to SimScript.
