@@ -21,16 +21,16 @@ module Pragmata.Clash.SimScript.SimScript (
   -- * Executing simulation
   execScriptN, evalScriptN, runScriptN,
   -- * Basic script's function
-  tell, getSimTime,
+  tell, get, put, modify, getSimTime,
 ) where
 
 import Clash.Prelude
 
 import Control.Monad.Cont
-import Control.Monad.State
+import Control.Monad.State ( State, StateT(StateT), runState )
 import qualified Data.List as L
 import Data.Functor.Identity (Identity(Identity))
--- import Debug.Trace (trace)
+import qualified Control.Monad.State as S
 
 -- = Types
 
@@ -93,12 +93,27 @@ runScriptN n circ s sc = let c = sampleN n (runSimScript circ s sc) in (fst <$> 
 -- | Append to simulation log
 tell :: (Monoid w) => w -> SimScript_ c r w s ()
 tell l = do
-  modify (\(s, l', us, c) -> (s, l' <> l, us, c))
+  S.modify (\(s, l', us, c) -> (s, l' <> l, us, c))
+
+-- | Get the (user) state
+get :: SimScript_ c r w s s
+get = do
+  (_, _, s, _) <- S.get
+  return s
+
+-- | Put the new (user) state
+put :: s -> SimScript_ c r w s ()
+put us = do
+  S.modify (\(s, l', _, c) -> (s, l', us, c))
+
+modify :: (s -> s) -> SimScript_ c r w s ()
+modify fn = do
+  S.modify (\(s, l', us, c) -> (s, l', fn us, c))
 
 -- | Returns the current simulation time (clock ticks)
 getSimTime :: SimScript_ c r w s Int
 getSimTime = do
-  (_, _, _, c) <- get
+  (_, _, _, c) <- S.get
   return c
 
 -- Private fns: Simulation and interpreter
@@ -146,12 +161,12 @@ exitScript k = do
 
 sendCommand :: (Monoid w) => (CR c r -> SimScript c r w s) -> CR c r -> SimScript_ c r w s ()
 sendCommand kk v = callCC $ \k -> do
-  modify $ \(_, l, s, c) -> (MkCC (k undefined), l, s, c)     -- k never be called
+  S.modify $ \(_, l, s, c) -> (MkCC (k undefined), l, s, c)     -- k never be called
   void $ kk v                                           -- abort current continuation
 
 readResponse :: (Monoid w) => SimScript_ c r w s r
 readResponse = do
-  (MkCC res, _, _, _) <- get
+  (MkCC res, _, _, _) <- S.get
   rv <- res
   case rv of
     R v -> return v
