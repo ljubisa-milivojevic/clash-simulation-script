@@ -81,7 +81,6 @@ library
   hs-source-dirs: src
   exposed-modules:
     Pragmata.Clash.SimScript.SimScript
-    Pragmata.Clash.SimScript.Orphans
     Pragmata.Clash.SimScript.Utils
   default-language: Haskell2010
   build-depends:

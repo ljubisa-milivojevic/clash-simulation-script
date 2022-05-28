@@ -22,7 +22,7 @@ tests = [5, 9, 12]
 
 -- | Main test (simulation) script
 --   for each test in tests calls subscript execSteps
-testScript :: SimScript (Unsigned 32) (Unsigned 32) [String]
+testScript :: SimScript (Unsigned 32) (Unsigned 32) [String] ()
 testScript = script $ \exec continue -> do
   forM_ tests $ \v -> do
     tell["Computing sequence for " <> show v]
@@ -30,7 +30,7 @@ testScript = script $ \exec continue -> do
   continue
 
 -- | Executes Collatz computation steps until reaching value 1
-execSteps :: SimExecFn (Unsigned 32) (Unsigned 32) [String] -> Unsigned 32 -> SimScript_ (Unsigned 32) (Unsigned 32) [String] ()
+execSteps :: SimExecFn (Unsigned 32) (Unsigned 32) [String] () -> Unsigned 32 -> SimScript_ (Unsigned 32) (Unsigned 32) [String] () ()
 execSteps _    1 = tell["1"]
 execSteps exec v = do
   tell[show v]
@@ -38,5 +38,5 @@ execSteps exec v = do
   nv <- exec v
   execSteps exec nv
 
--- >>> execScriptN @System 50 collatz testScript
--- ["Computing sequence for 5","5","16","8","4","2","1","Computing sequence for 9","9","28","14","7","22","11","34","17","52","26","13","40","20","10","5","16","8","4","2","1","Computing sequence for 12","12","6","3","10","5","16","8","4","2","1"]
+-- >>> execScriptN @System 50 collatz () testScript
+-- (["Computing sequence for 5","5","16","8","4","2","1","Computing sequence for 9","9","28","14","7","22","11","34","17","52","26","13","40","20","10","5","16","8","4","2","1","Computing sequence for 12","12","6","3","10","5","16","8","4","2","1"],())

@@ -10,10 +10,10 @@ import Pragmata.Clash.SimScript.SimScript
 -- | Execute the command until result satisifies specified condition
 --   return value is pair of result (which satisfies condiotn) and
 --   simulation time when is condition satisfied
-execUntil :: SimExecFn c r w            -- ^ exec function
+execUntil :: SimExecFn c r w s          -- ^ exec function
           -> (r -> Bool)                -- ^ condition
           -> c                          -- ^ command
-          -> SimScript_ c r w (r, Int)
+          -> SimScript_ c r w s (r, Int)
 execUntil exec test c = do
   rv <- exec c
   t <- getSimTime
